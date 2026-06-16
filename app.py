@@ -5,57 +5,96 @@ import requests
 import gspread
 
 # Set page config
-st.set_page_config(page_title="Joga Bonito at Tech", page_icon=":soccer:")
-st.title("Joga Bonito at Tech ⚽")
-st.write("Analysis of player performance at Georgia Tech soccer games")
+st.set_page_config(page_title="AZL TOURNAMENT: STATS", page_icon=":soccer:")
+st.title("AZL TOURNAMENT: STATS ⚽")
+st.write("Analysis of player performance from AZL Tournament soccer games")
 
 r = requests.get(f'https://docs.google.com/spreadsheet/ccc?key=1tPCnVRoxTh597qqxCGqZ5PpFVw8JhvJW1ODo0jH9lA0&output=csv')
 open('dataset.csv', 'wb').write(r.content)
 df = pd.read_csv('dataset.csv')
+players_df = pd.read_csv('players.csv')
+players_df['Team'] = pd.to_numeric(players_df['Team'], errors='coerce')
+players_df['Skill'] = pd.to_numeric(players_df['Skill'], errors='coerce')
+players_df = players_df[['Name', 'Quirk', 'Team', 'Skill']]
+players_df['Name Normalized'] = players_df['Name'].str.upper().str.strip()
 
-# Calculate metrics
-df['Goals per Game'] = df['Goals'] / df['Games Played']
-df['Assists per Game'] = df['Assists'] / df['Games Played']
-df['G/A per Game'] = (df['Goals'] + df['Assists']) / df['Games Played']
+df['Player Name Normalized'] = df['Player Name'].str.upper().str.strip()
+merged_df = pd.merge(
+    players_df,
+    df[['Player Name Normalized', 'Games Played', 'Goals', 'Assists']],
+    left_on='Name Normalized',
+    right_on='Player Name Normalized',
+    how='left'
+).drop(columns=['Name Normalized', 'Player Name Normalized'])
+
+merged_df['Goals'] = merged_df['Goals'].fillna(0).astype('Int64')
+merged_df['Assists'] = merged_df['Assists'].fillna(0).astype('Int64')
+merged_df['Games Played'] = merged_df['Games Played'].fillna(0).astype('Int64')
+merged_df['Goals per Game'] = merged_df.apply(
+    lambda row: row['Goals'] / row['Games Played'] if row['Games Played'] > 0 else 0,
+    axis=1
+)
+merged_df['Assists per Game'] = merged_df.apply(
+    lambda row: row['Assists'] / row['Games Played'] if row['Games Played'] > 0 else 0,
+    axis=1
+)
+merged_df['G/A per Game'] = merged_df.apply(
+    lambda row: (row['Goals'] + row['Assists']) / row['Games Played'] if row['Games Played'] > 0 else 0,
+    axis=1
+)
 
 # Sort the dataframes
-goals_per_game_df = df[['Player Name', 'Goals per Game']].sort_values(by='Goals per Game', ascending=False)
-assists_per_game_df = df[['Player Name', 'Assists per Game']].sort_values(by='Assists per Game', ascending=False)
-total_goals_df = df[['Player Name', 'Goals']].sort_values(by='Goals', ascending=False)
-total_assists_df = df[['Player Name', 'Assists']].sort_values(by='Assists', ascending=False)
+f_df = df.copy()
+f_df['Goals per Game'] = f_df['Goals'] / f_df['Games Played']
+f_df['Assists per Game'] = f_df['Assists'] / f_df['Games Played']
+f_df['G/A per Game'] = (f_df['Goals'] + f_df['Assists']) / f_df['Games Played']
 
-# Display tables in two columns
-col1, col2 = st.columns(2)
+goals_per_game_df = f_df[['Player Name', 'Goals per Game']].sort_values(by='Goals per Game', ascending=False)
+assists_per_game_df = f_df[['Player Name', 'Assists per Game']].sort_values(by='Assists per Game', ascending=False)
+total_goals_df = f_df[['Player Name', 'Goals']].sort_values(by='Goals', ascending=False)
+total_assists_df = f_df[['Player Name', 'Assists']].sort_values(by='Assists', ascending=False)
 
-col1.header("Goals per Game")
-show_all_rows1 = st.checkbox("All Goals per Game Stats", key='goals_per_game')
-if show_all_rows1:
-    col1.table(goals_per_game_df)
+player_goals_per_game_df = merged_df[['Name', 'Quirk', 'Team', 'Skill', 'Goals per Game']].sort_values(by='Goals per Game', ascending=False)
+player_total_goals_df = merged_df[['Name', 'Quirk', 'Team', 'Skill', 'Goals']].sort_values(by='Goals', ascending=False)
+player_assists_per_game_df = merged_df[['Name', 'Quirk', 'Team', 'Skill', 'Assists per Game']].sort_values(by='Assists per Game', ascending=False)
+player_total_assists_df = merged_df[['Name', 'Quirk', 'Team', 'Skill', 'Assists']].sort_values(by='Assists', ascending=False)
+
+players_sorted_df = players_df.sort_values(by=['Team', 'Skill', 'Name'], ascending=[True, False, True])
+quirk_counts_df = players_df['Quirk'].value_counts().rename_axis('Quirk').reset_index(name='Count')
+team_skill_df = players_df.groupby('Team', as_index=False)['Skill'].mean().sort_values(by='Skill', ascending=False)
+
+
+st.header("Player List")
+show_players = st.checkbox("Show Player List")
+if show_players:
+    st.table(players_sorted_df)
+
+st.header("Player Quirk Counts")
+st.table(quirk_counts_df)
+
+st.header("Average Skill by Team")
+st.table(team_skill_df)
+
+st.header("26-Player Metrics")
+selected_tab = st.selectbox(
+    "Choose a metric",
+    [
+        "Goals per Game",
+        "Total Goals",
+        "Assists per Game",
+        "Total Assists"
+    ]
+)
+
+if selected_tab == "Goals per Game":
+    st.subheader("26-player Goals per Game")
+    st.table(player_goals_per_game_df)
+elif selected_tab == "Total Goals":
+    st.subheader("26-player Total Goals")
+    st.table(player_total_goals_df)
+elif selected_tab == "Assists per Game":
+    st.subheader("26-player Assists per Game")
+    st.table(player_assists_per_game_df)
 else:
-    col1.table(goals_per_game_df.head(10))
-
-col1.header("Assists per Game")
-show_all_rows2 = st.checkbox("All Assists per Game Stats", key='assists_per_game')
-if show_all_rows2:
-    col1.table(assists_per_game_df)
-else:
-    col1.table(assists_per_game_df.head(10))
-
-col2.header("Total Goals")
-show_all_rows3 = st.checkbox("All Total Goals Stats", key='total_goals')
-if show_all_rows3:
-    col2.table(total_goals_df)
-else:
-    col2.table(total_goals_df.head(10))
-
-col2.header("Total Assists")
-show_all_rows4 = st.checkbox("All Total Assists Stats", key='total_assists')
-if show_all_rows4:
-    col2.table(total_assists_df)
-else:
-    col2.table(total_assists_df.head(10))
-
-# Display video
-st.write("")
-st.write("")
-st.components.v1.html(f'<iframe width="560" height="315" src="https://www.youtube.com/embed/Xbl6PL3dgmE" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>', width=560, height=315, scrolling=False)
+    st.subheader("26-player Total Assists")
+    st.table(player_total_assists_df)
